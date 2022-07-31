@@ -9,9 +9,7 @@ const stdio = @cImport(@cInclude("stdio.h"));
 const std = @import("std");
 const mode = @import("builtin").mode;
 
-// TODO: clean up logging so it looks prettier and declares that it's from
-// git-brief, so people don't think errors are coming from git, and don't fail
-// to execute git if at all possible, even if we hit an error in the analysis
+// TODO: make non-fatal errors warnings and still exec git
 
 // TODO: understand aliases and arguments better. for example: ignore
 // unimportant whitespce
@@ -80,23 +78,42 @@ const ConfigIterator = struct {
                 return null;
             }
 
-            // TODO: figure out what the error is and wrap it
             return error.LibGit2Failed;
         }
         return config_entry;
     }
 };
 
-pub fn main() anyerror!void {
+fn die(err: []const u8) void {
+    const stderr = std.io.getStdErr();
+    stderr.writeAll("git-brief: ") catch { std.os.exit(1); };
+    stderr.writeAll(err) catch { };
+    std.os.exit(1);
+}
+
+fn die_oom() void {
+    die("out of memory");
+}
+
+fn die_detect(err: anyerror) void {
+    switch (err) {
+        std.mem.Allocator.Error.OutOfMemory => {
+            die_oom();
+        },
+        else => die("unknown error"),
+    }
+}
+
+pub fn main() void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     // an arraylist to hold all the command line args
     var argv_list = std.ArrayList(?[*:0]const u8).init(allocator);
 
-    var args = try std.process.argsWithAllocator(allocator);
+    var args = std.process.argsWithAllocator(allocator) catch { die_oom(); };
     while (args.next()) |a| {
-        try argv_list.append(a);
+        argv_list.append(a) catch { die_oom(); };
     }
     args.deinit();
 
@@ -105,18 +122,19 @@ pub fn main() anyerror!void {
 
     for (argv_list.items[1..]) |rarg| {
         if (rarg) |arg| {
-            try args_concat.appendSlice(std.mem.span(arg));
-            try args_concat.append(' ');
+            args_concat.appendSlice(std.mem.span(arg)) catch { die_oom(); };
+            args_concat.append(' ') catch { die_oom(); };
         }
     }
     // remove the last space
     _ = args_concat.popOrNull();
 
     // the path to the git binary that will be executed
-    const git_path = (try find_git(allocator, std.mem.span(argv_list.items[0].?))) orelse "/usr/bin/git";
+    const git_path = (find_git(allocator, std.mem.span(argv_list.items[0].?)) catch |err| { return die_detect(err); } orelse "/usr/bin/git");
 
     // iterate through config
-    var config_iterator = try ConfigIterator.init("^alias\\.");
+    var config_iterator = ConfigIterator.init("^alias\\.") catch { return die("libgit2 failure"); };
+    defer config_iterator.deinit();
     while (config_iterator.next()) |rentry| {
         if (rentry) |entry| {
             // TODO: don't print suggestions for which val is a subset of
@@ -124,7 +142,7 @@ pub fn main() anyerror!void {
             const val = std.mem.span(entry.value);
             if (std.mem.indexOf(u8, args_concat.items, val)) |i| {
                 const name = std.mem.span(entry.name)[6..];
-                try std.io.getStdErr().writer().print("git-brief: you could've used {s} instead of {s}\n", .{ name, args_concat.items[i .. i + val.len] });
+                std.io.getStdErr().writer().print("git-brief: you could've used '{s}' instead of '{s}'\n", .{ name, args_concat.items[i .. i + val.len] }) catch { die("write failed"); };
             }
         } else {
             break;
@@ -136,16 +154,16 @@ pub fn main() anyerror!void {
 
     args_concat.deinit();
     config_iterator.deinit();
-    const argv = try argv_list.toOwnedSliceSentinel(null);
+    const argv = argv_list.toOwnedSliceSentinel(null) catch { return die_oom(); };
 
     if (true) {
-        return std.os.execveZ(git_path, argv, &[_:null]?[*:0]const u8{});
+        std.os.execveZ(git_path, argv, &[_:null]?[*:0]const u8{}) catch { die("exec failed"); };
     } else {
         // useful for checking leaks; can't be executed in the release version
         // because argv and git_path cannot be de-allocated before the call to
         // execveZ, at which point control of the process is transfered to git
         allocator.destroy(git_path);
         allocator.free(argv);
-        _ = gpa.deinit();
+        return gpa.deinit();
     }
 }
