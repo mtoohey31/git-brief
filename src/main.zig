@@ -22,7 +22,7 @@ fn find_git(allocator: std.mem.Allocator, arg0: []const u8) !?[*:0]const u8 {
             continue;
         }
 
-        var git_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ entry, "git" });
+        const git_path = try std.fs.path.joinZ(allocator, &[_][]const u8{ entry, "git" });
         var stat: std.os.Stat = undefined;
         // TODO: figure out why std.os.errno is broken
         const r = @bitCast(isize, std.os.linux.stat(git_path, &stat));
