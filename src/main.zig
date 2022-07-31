@@ -37,29 +37,17 @@ pub fn main() anyerror!void {
         var args_concat = std.ArrayList(u8).init(allocator);
         defer args_concat.deinit();
         var args = try std.process.argsWithAllocator(allocator);
-        if (args.next(allocator)) |ra| {
-            if (ra) |a| {
-                try argv.append(a);
-            } else |err| {
-                return err;
-            }
+        if (args.next()) |a| {
+            try argv.append(a);
         }
-        if (args.next(allocator)) |ra| {
-            if (ra) |a| {
-                try argv.append(a);
-                try args_concat.appendSlice(a);
-            } else |err| {
-                return err;
-            }
+        if (args.next()) |a| {
+            try argv.append(a);
+            try args_concat.appendSlice(a);
         }
-        while (args.next(allocator)) |ra| {
-            if (ra) |a| {
-                try argv.append(a);
-                try args_concat.append(' ');
-                try args_concat.appendSlice(a);
-            } else |err| {
-                return err;
-            }
+        while (args.next()) |a| {
+            try argv.append(a);
+            try args_concat.append(' ');
+            try args_concat.appendSlice(a);
         }
         args.deinit();
 
@@ -118,14 +106,8 @@ pub fn main() anyerror!void {
     // useful for checking leaks
     // _ = gpa.deinit();
 
-    var new_argv = try allocator.alloc(?[*:0]const u8, argv.items.len + 1);
-    std.mem.copy(?[*:0]const u8, new_argv, argv.items);
-    new_argv[0] = git_path;
-    new_argv[argv.items.len] = switch (@typeInfo([*:null] ?[*:0]const u8)) {
-        .Pointer => |info| info.sentinel.?,
-        else => @compileError(""),
-    };
+    try argv.append(null);
     return std.os.execveZ(git_path,
-        @ptrCast([*:null]const ?[*:0]const u8, new_argv),
+        @ptrCast([*:null]const ?[*:0]const u8, argv.items),
         &[_:null]?[*:0]const u8{});
 }
