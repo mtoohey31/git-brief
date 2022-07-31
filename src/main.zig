@@ -132,7 +132,6 @@ pub fn main() void {
 
     // iterate through config
     var config_iterator = ConfigIterator.init("^alias\\.") catch { return die("libgit2 failure"); };
-    defer config_iterator.deinit();
     while (config_iterator.next()) |rentry| {
         if (rentry) |entry| {
             // TODO: don't print suggestions for which val is a subset of
