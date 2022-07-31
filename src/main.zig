@@ -5,8 +5,6 @@ const git = @cImport({
     @cInclude("git2/repository.h");
 });
 
-const DEBUG_LEAKS = false;
-
 const stdio = @cImport(@cInclude("stdio.h"));
 const std = @import("std");
 const mode = @import("builtin").mode;
@@ -94,18 +92,18 @@ pub fn main() anyerror!void {
     const allocator = gpa.allocator();
 
     // an arraylist to hold all the command line args
-    var argv = std.ArrayList(?[*:0]const u8).init(allocator);
+    var argv_list = std.ArrayList(?[*:0]const u8).init(allocator);
 
     var args = try std.process.argsWithAllocator(allocator);
     while (args.next()) |a| {
-        try argv.append(a);
+        try argv_list.append(a);
     }
     args.deinit();
 
     // args concatenated by ' '
     var args_concat = std.ArrayList(u8).init(allocator);
 
-    for (argv.items[1..]) |rarg| {
+    for (argv_list.items[1..]) |rarg| {
         if (rarg) |arg| {
             try args_concat.appendSlice(std.mem.span(arg));
             try args_concat.append(' ');
@@ -115,7 +113,7 @@ pub fn main() anyerror!void {
     _ = args_concat.popOrNull();
 
     // the path to the git binary that will be executed
-    const git_path = (try find_git(allocator, std.mem.span(argv.items[0].?))) orelse "/usr/bin/git";
+    const git_path = (try find_git(allocator, std.mem.span(argv_list.items[0].?))) orelse "/usr/bin/git";
 
     // iterate through config
     var config_iterator = try ConfigIterator.init("^alias\\.");
@@ -138,16 +136,16 @@ pub fn main() anyerror!void {
 
     args_concat.deinit();
     config_iterator.deinit();
+    const argv = try argv_list.toOwnedSliceSentinel(null);
 
-    // useful for checking leaks; can't be executed in the release version
-    // because argv and git_path cannot be de-allocated before the call to
-    // execveZ, at which point control of the process is transfered to git
-    if (DEBUG_LEAKS) {
-        allocator.destroy(git_path);
-        argv.deinit();
-        _ = gpa.deinit();
+    if (true) {
+        return std.os.execveZ(git_path, argv, &[_:null]?[*:0]const u8{});
     } else {
-        try argv.append(null);
-        return std.os.execveZ(git_path, @ptrCast([*:null]const ?[*:0]const u8, argv.items), &[_:null]?[*:0]const u8{});
+        // useful for checking leaks; can't be executed in the release version
+        // because argv and git_path cannot be de-allocated before the call to
+        // execveZ, at which point control of the process is transfered to git
+        allocator.destroy(git_path);
+        allocator.free(argv);
+        _ = gpa.deinit();
     }
 }
