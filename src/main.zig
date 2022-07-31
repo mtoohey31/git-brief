@@ -128,7 +128,7 @@ pub fn main() void {
     _ = args_concat.popOrNull();
 
     // the path to the git binary that will be executed
-    const git_path = (find_git(allocator, std.mem.span(argv_list.items[0].?)) catch |err| { return die_detect(err); } orelse "/usr/bin/git");
+    const git_path = find_git(allocator, std.mem.span(argv_list.items[0].?)) catch |err| { return die_detect(err); } orelse "/usr/bin/git";
 
     // iterate through config
     var config_iterator = ConfigIterator.init("^alias\\.") catch { return die("libgit2 failure"); };
