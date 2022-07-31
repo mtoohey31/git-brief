@@ -5,9 +5,7 @@ const git = @cImport({
     @cInclude("git2/repository.h");
 });
 
-const stdio = @cImport(@cInclude("stdio.h"));
 const std = @import("std");
-const mode = @import("builtin").mode;
 
 // TODO: make non-fatal errors warnings and still exec git
 
