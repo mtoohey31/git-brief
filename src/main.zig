@@ -324,6 +324,8 @@ pub fn main() void {
         return die_detect(err);
     } orelse "/usr/bin/git";
 
+    // will store the best advice (the advice that results in the shortest
+    // git invocation) if we can find any
     var best_advice: ?[2][]const u8 = null;
 
     // iterate through config
@@ -406,14 +408,21 @@ pub fn main() void {
             }
         }
 
+        const name = std.mem.span(entry.name)[6..];
+
         // if we haven't continue :outer'd to the next iteration yet, this alias
         // is a candidate, so add it if it's better than the current best
-        if (best_advice == null or best_advice.?[1].len < value.len) {
+        if (best_advice == null or best_advice.?[1].len - best_advice.?[0].len < value.len - name.len) {
+            // free the old best advice
             if (best_advice != null) {
                 allocator.free(best_advice.?[0]);
                 allocator.free(best_advice.?[1]);
             }
-            best_advice = [2][]const u8{ allocator.dupe(u8, std.mem.span(entry.name)[6..]) catch {
+
+            // we need to duplicate stuff here because the memory of entry's
+            // fields is owned by entry, and will be muted before the next
+            // iteration
+            best_advice = [2][]const u8{ allocator.dupe(u8, name) catch {
                 return die_oom();
             }, allocator.dupe(u8, value) catch {
                 return die_oom();
