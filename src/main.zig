@@ -234,14 +234,53 @@ test "split double quote escape" {
     std.testing.allocator.free(actual);
 }
 
-fn indexOfSlice(comptime T: type, haystack: [][]const T, needle: []const T) ?usize {
+fn indexOfSlice(comptime T: type, haystack: []const []const T, needle: []const []const T) ?usize {
     var i: usize = 0;
-    while (i < haystack.len) : (i += 1) {
-        if (std.mem.eql(T, haystack[i], needle)) {
-            return i;
+    outer: while (i < haystack.len) : (i += 1) {
+        var j: usize = 0;
+        while (i + j < haystack.len and j < needle.len) : (j += 1) {
+            if (!std.mem.eql(T, haystack[i + j], needle[j])) {
+                continue :outer;
+            }
         }
+        return i;
     }
     return null;
+}
+
+fn containsShortFlags(allocator: std.mem.Allocator, parts: []const []const u8, short_flags: []const u8) std.mem.Allocator.Error!bool {
+    // collect all the short flags that can be found
+    var seen_flags = std.AutoHashMap(i32, void).init(allocator);
+    for (parts) |part| {
+        if (part.len >= 2 and part[0] == '-' and part[1] != '-') {
+            for (part) |c| {
+                try seen_flags.put(c, {});
+            }
+        }
+    }
+
+    // iterate through the flags we want, if any of them aren't found, return
+    // false
+    for (short_flags) |flag| {
+        if (seen_flags.get(flag) == null) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+fn containsShortFollowedByValue(parts: []const []const u8, short: u8, value: []const u8) std.mem.Allocator.Error!bool {
+    for (parts) |part, i| {
+        // if the current part is a set of short flags, and there is a next
+        // value, and the current set of short flags ends with the target flag,
+        // and the next value is equal to the target value, then return true
+        if (part.len >= 2 and part[0] == '-' and part[1] != '-' and i + 1 < parts.len and part[part.len - 1] == short and std.mem.eql(u8, parts[i + 1], value)) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 pub fn main() void {
@@ -279,10 +318,17 @@ pub fn main() void {
         return die("libgit2 failure");
     };
     outer: while (config_iterator.next()) |rentry| {
+        // prep work
         const entry = rentry orelse {
             break;
         };
         const value = std.mem.span(entry.value);
+        // if it starts with '!', it's an alias that will be evaulated by the
+        // shell, so we can't support it, and if it's empty then it won't be of
+        // much use so we just skip too
+        if (value.len == 0 or value[0] == '!') {
+            continue;
+        }
         const parts = split_cmdline(allocator, value) catch {
             return die_oom();
         };
@@ -292,20 +338,63 @@ pub fn main() void {
             }
             allocator.free(parts);
         }
+
+        // iterate through the arguments
         var i: usize = 0;
         while (i < parts.len) : (i += 1) {
-            _ = indexOfSlice(u8, argv_list.items, parts[i]) orelse {
-                continue :outer;
-            };
             if (parts[i].len != 0 and parts[i][0] == '-') {
-                i += 1;
-                if (i < parts.len) {
-                    _ = indexOfSlice(u8, argv_list.items, parts[i]) orelse {
-                        continue :outer;
+                // this argument is a flag of some kind
+                if (parts[i].len >= 2 and parts[i][1] == '-') {
+                    // this argument is a long flag
+
+                    // if the next argument doesn't look like a flag, check if
+                    // this long flag is followed by the same value in the
+                    // arguments
+                    if (i + 1 < parts.len and (parts[i + 1].len == 0 or parts[i + 1][0] != '-')) {
+                        _ = indexOfSlice(u8, argv_list.items, parts[i..i + 2]) orelse {
+                            continue :outer;
+                        };
+                        i += 1;
+                    } else {
+                        // just check if the flag itself is in the parts
+                        _ = indexOfSlice(u8, argv_list.items, &[_][] const u8{parts[i]}) orelse {
+                            continue :outer;
+                        };
+                    }
+                } else {
+                    // this argument is a short flag
+
+                    var end = parts[i].len - 1;
+                    // if the next argument doesn't look like a flag, don't
+                    // check for the final short flag generally, instead look
+                    // for it, followed by the same entry
+                    if (i + 1 < parts.len and (parts[i + 1].len == 0 or parts[i + 1][0] != '-')) {
+                        end -= 1;
+                        const contains = containsShortFollowedByValue(argv_list.items, parts[i][parts[i].len - 1], parts[i + 1]) catch {
+                            return die_oom();
+                        };
+                        if (!contains) {
+                            continue :outer;
+                        }
+                        i += 1;
+                    }
+
+                    const contains = containsShortFlags(allocator, argv_list.items, parts[i][1..end]) catch {
+                        return die_oom();
                     };
+                    if (!contains) {
+                        continue :outer;
+                    }
                 }
+            } else {
+                _ = indexOfSlice(u8, argv_list.items, &[_][]const u8{parts[i]}) orelse {
+                    continue :outer;
+                };
             }
         }
+
+        // if we haven't continue :outer'd to the next iteration yet, this alias
+        // is a candidate, so add it if it's better than the current best
         if (best_advice == null or best_advice.?[1].len < value.len) {
             if (best_advice != null) {
                 allocator.free(best_advice.?[0]);
