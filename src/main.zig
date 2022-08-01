@@ -367,13 +367,13 @@ pub fn main() void {
                     // this long flag is followed by the same value in the
                     // arguments
                     if (i + 1 < parts.len and (parts[i + 1].len == 0 or parts[i + 1][0] != '-')) {
-                        _ = indexOfSlice(u8, argv_slice, parts[i..i + 2]) orelse {
+                        _ = indexOfSlice(u8, argv_slice, parts[i .. i + 2]) orelse {
                             continue :outer;
                         };
                         i += 1;
                     } else {
                         // just check if the flag itself is in the parts
-                        _ = indexOfSlice(u8, argv_slice, &[_][] const u8{parts[i]}) orelse {
+                        _ = indexOfSlice(u8, argv_slice, &[_][]const u8{parts[i]}) orelse {
                             continue :outer;
                         };
                     }
