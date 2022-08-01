@@ -4,6 +4,7 @@
   inputs = {
     nixpkgs.url = "nixpkgs/nixpkgs-unstable";
     utils.url = "github:numtide/flake-utils";
+    # TODO: remove this once zig 0.10.0 available in nixpkgs
     zig-src = {
       url = "github:ziglang/zig";
       flake = false;
