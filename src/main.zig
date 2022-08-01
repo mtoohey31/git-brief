@@ -288,26 +288,39 @@ pub fn main() void {
     const allocator = gpa.allocator();
 
     // an arraylist to hold all the sentinel-terminated command line args
-    var argv_slist = std.ArrayList(?[*:0]const u8).init(allocator);
-    // an arraylist to hold all the slice command line args
-    var argv_list = std.ArrayList([]const u8).init(allocator);
+    var sentinel_argv_list = std.ArrayList(?[*:0]const u8).init(allocator);
 
+    // get the args and move them into the arraylist
     var args = std.process.argsWithAllocator(allocator) catch {
         die_oom();
     };
     while (args.next()) |a| {
-        argv_slist.append(a) catch {
-            die_oom();
-        };
-        argv_list.append(std.mem.span(a)) catch {
+        sentinel_argv_list.append(a) catch {
             die_oom();
         };
     }
     args.deinit();
 
+    // allocate a slice with the correct length to hold argv entries as slices
+    const argv_slice = allocator.alloc([]const u8, sentinel_argv_list.items.len) catch {
+        return die_oom();
+    };
+
+    // drain the sentinel_argv_list into a sentinel-terminated list whose type
+    // is suitable for execveZ
+    const argv = sentinel_argv_list.toOwnedSliceSentinel(null) catch {
+        return die_oom();
+    };
+
+    // copy the values of argv into argv_slice
+    for (argv) |arg, i| {
+        // .? is safe because everything we put in sentinel_argv_list was a
+        // [*:0]const u8; not null, we just need it to have that type
+        argv_slice[i] = std.mem.span(arg.?);
+    }
 
     // the path to the git binary that will be executed
-    const git_path = find_git(allocator, argv_list.items[0]) catch |err| {
+    const git_path = find_git(allocator, argv_slice[0]) catch |err| {
         return die_detect(err);
     } orelse "/usr/bin/git";
 
@@ -351,13 +364,13 @@ pub fn main() void {
                     // this long flag is followed by the same value in the
                     // arguments
                     if (i + 1 < parts.len and (parts[i + 1].len == 0 or parts[i + 1][0] != '-')) {
-                        _ = indexOfSlice(u8, argv_list.items, parts[i..i + 2]) orelse {
+                        _ = indexOfSlice(u8, argv_slice, parts[i..i + 2]) orelse {
                             continue :outer;
                         };
                         i += 1;
                     } else {
                         // just check if the flag itself is in the parts
-                        _ = indexOfSlice(u8, argv_list.items, &[_][] const u8{parts[i]}) orelse {
+                        _ = indexOfSlice(u8, argv_slice, &[_][] const u8{parts[i]}) orelse {
                             continue :outer;
                         };
                     }
@@ -370,7 +383,7 @@ pub fn main() void {
                     // for it, followed by the same entry
                     if (i + 1 < parts.len and (parts[i + 1].len == 0 or parts[i + 1][0] != '-')) {
                         end -= 1;
-                        const contains = containsShortFollowedByValue(argv_list.items, parts[i][parts[i].len - 1], parts[i + 1]) catch {
+                        const contains = containsShortFollowedByValue(argv_slice, parts[i][parts[i].len - 1], parts[i + 1]) catch {
                             return die_oom();
                         };
                         if (!contains) {
@@ -379,7 +392,7 @@ pub fn main() void {
                         i += 1;
                     }
 
-                    const contains = containsShortFlags(allocator, argv_list.items, parts[i][1..end]) catch {
+                    const contains = containsShortFlags(allocator, argv_slice, parts[i][1..end]) catch {
                         return die_oom();
                     };
                     if (!contains) {
@@ -387,7 +400,7 @@ pub fn main() void {
                     }
                 }
             } else {
-                _ = indexOfSlice(u8, argv_list.items, &[_][]const u8{parts[i]}) orelse {
+                _ = indexOfSlice(u8, argv_slice, &[_][]const u8{parts[i]}) orelse {
                     continue :outer;
                 };
             }
@@ -410,12 +423,9 @@ pub fn main() void {
         die_detect(err);
     }
 
+    // clean up resources that we're finished with
     config_iterator.deinit();
-    argv_list.deinit();
-
-    const argv = argv_slist.toOwnedSliceSentinel(null) catch {
-        return die_oom();
-    };
+    allocator.free(argv_slice);
 
     if (best_advice) |advice| {
         std.io.getStdErr().writer().print("\x1b[2;90mgit-brief: you could've used '{s}' instead of '{s}'\x1b[0m\n", .{ advice[0], advice[1] }) catch |err| {
