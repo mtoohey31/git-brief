@@ -11,8 +11,9 @@ const expect = std.testing.expect;
 
 // TODO: make non-fatal errors warnings and still exec git
 
-// TODO: understand aliases and arguments better. for example: ignore
-// unimportant whitespce
+// TODO: pull info about equivalent short and long flags from git?
+
+// TODO: extract "best alias" detection into a function and write tests for it
 
 fn find_git(allocator: std.mem.Allocator, arg0: []const u8) !?[*:0]const u8 {
     const arg0_dir = std.fs.path.dirname(arg0);
