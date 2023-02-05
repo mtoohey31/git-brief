@@ -13,4 +13,4 @@ jobs:
           key: ${{ runner.os }}-nix-${{ hashFiles('./flake.lock', './flake.nix') }}
           flake_paths: .#devShells.x86_64-linux.ci
       - name: Run CI
-        run: XDG_DATA_HOME="$HOME/.local/share" nix --extra-experimental-features nix-command --extra-experimental-features flakes develop .#ci -k XDG_DATA_HOME -ic make ci
+        run: XDG_DATA_HOME="$HOME/.local/share" nix --extra-experimental-features nix-command --extra-experimental-features flakes develop .#ci -k XDG_DATA_HOME -ic make ci ZIG_FLAGS=-Dcpu=baseline

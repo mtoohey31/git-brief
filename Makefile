@@ -1,25 +1,30 @@
-.PHONY: default ci fmt fmt-check test
+build/debug/bin/git: build.zig $(shell find src -type d -o -name '*.zig')
+	zig build $(ZIG_FLAGS) --prefix build/debug
 
-default: git
+build/release/bin/git: **.zig
+	zig build -Drelease-safe $(ZIG_FLAGS) --prefix build/release
 
-ci: default fmt-check test
+PREFIX ?= /usr
 
-# debug build
-zig-out/bin/git-brief: **.zig
-	zig build
+.PHONY: install
+install:
+	zig build -Drelease-safe $(ZIG_FLAGS) --prefix $(PREFIX)
 
-# release build
-git: **.zig
-	zig build -Drelease-safe && mv zig-out/bin/git-brief $@
+.PHONY: ci
+ci: build/release/bin/git fmt-check test
 
+.PHONY: fmt
 fmt:
 	zig fmt --exclude zig-cache .
 
+.PHONY: fmt-check
 fmt-check:
 	zig fmt --exclude zig-cache . --check
 
+.PHONY: test
 test:
-	zig build test
+	zig build test $(ZIG_FLAGS)
 
+.PHONY: clean
 clean:
-	rm -rf git zig-cache zig-out
+	rm -rf build/ zig-cache/ result
